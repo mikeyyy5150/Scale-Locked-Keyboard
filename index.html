@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Scale Lock</title>
+<title>Scale Locked Keyboard</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap">
 <style>
 :root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); color-scheme: light; }
@@ -81,7 +81,6 @@ body {
 .top { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: flex-end; justify-content: space-between; }
 .brand { min-width: 0; }
 h1 { margin: 0; font: 700 26px/1.1 var(--font-display); letter-spacing: -0.01em; text-wrap: balance; }
-.brand p { margin: 4px 0 0; color: var(--muted); font-size: 14px; max-width: 34ch; }
 
 .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; min-width: 0; }
 .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -102,8 +101,8 @@ select {
   min-height: 44px;
   max-width: 100%;
 }
-.step, .seg { display: flex; border: 2px solid var(--line); border-radius: 8px; background: var(--panel); overflow: hidden; min-height: 44px; }
-.step button, .seg button {
+.seg { display: flex; border: 2px solid var(--line); border-radius: 8px; background: var(--panel); overflow: hidden; min-height: 44px; }
+.seg button {
   font: 600 16px/1 var(--font-body);
   color: var(--ink);
   background: transparent;
@@ -112,17 +111,10 @@ select {
   padding: 0 12px;
   cursor: pointer;
 }
-.step output { display: flex; align-items: center; justify-content: center; min-width: 92px; padding: 0 8px; font: 500 14px var(--font-mono); font-variant-numeric: tabular-nums; border-inline: 2px solid var(--line); }
 .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
-.step button:hover, .seg button:hover:not([aria-pressed="true"]) { background: var(--tonic); }
-select:focus-visible, .step button:focus-visible, .seg button:focus-visible, .key:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.seg button:hover:not([aria-pressed="true"]) { background: var(--tonic); }
+select:focus-visible, .seg button:focus-visible, .key:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 
-.scale { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; background: var(--panel); border: 2px solid var(--line); border-radius: 10px; padding: 10px 14px; }
-.scale .name { font: 700 18px/1.2 var(--font-display); }
-.scale .meta { font: 400 13px var(--font-mono); color: var(--muted); }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.chips li { font: 600 16px/1 var(--font-display); padding: 6px 9px; border-radius: 6px; border: 2px solid var(--line); min-width: 38px; text-align: center; }
-.chips li.tonic { background: var(--tonic); border-color: var(--tonic-edge); }
 
 .stage { flex: 1 1 auto; min-height: 330px; min-width: 0; }
 .rows { display: grid; grid-template-rows: repeat(3, 1fr); gap: 10px; height: 100%; }
@@ -163,9 +155,6 @@ select:focus-visible, .step button:focus-visible, .seg button:focus-visible, .ke
 .key .kb { bottom: 5px; left: 0; right: 0; text-align: center; text-transform: uppercase; display: none; }
 @media (hover: hover) and (pointer: fine) { .key .kb { display: block; } .key { padding-bottom: 18px; } }
 
-footer { color: var(--muted); font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
-footer p { margin: 0; max-width: 80ch; }
-@media (hover: none) { .kbtip { display: none; } }
 @media (prefers-reduced-motion: reduce) { .key { transition: none; } }
 @media (max-width: 480px) {
   h1 { font-size: 22px; }
@@ -178,8 +167,7 @@ footer p { margin: 0; max-width: 80ch; }
 <div class="app">
   <header class="top">
     <div class="brand">
-      <h1>Scale Lock</h1>
-      <p>Pick a key. Every button plays a note in that key, so nothing sounds wrong.</p>
+      <h1>Scale Locked Keyboard</h1>
     </div>
     <div class="controls">
       <div class="field grow">
@@ -196,21 +184,8 @@ footer p { margin: 0; max-width: 80ch; }
     </div>
   </header>
 
-  <section class="scale" aria-live="polite">
-    <div>
-      <div class="name" id="scaleName"></div>
-      <div class="meta" id="scaleMeta"></div>
-    </div>
-    <ol class="chips" id="chips"></ol>
-  </section>
-
   <main class="stage" id="stage"></main>
 
-  <footer>
-    <p>Shaded buttons are the key note (the tonic). The small number on each button is its place in the scale, 1 to 7.</p>
-    <p class="kbtip">Computer keyboard: bottom row Z to comma, middle row A to K, top row Q to I.</p>
-    <p>No sound on an iPhone? Flip the silent switch on the side to off.</p>
-  </footer>
 </div>
 
 <script>
@@ -253,9 +228,6 @@ footer p { margin: 0; max-width: 80ch; }
 
   var keySel = document.getElementById('keySel');
   var stage = document.getElementById('stage');
-  var chips = document.getElementById('chips');
-  var scaleName = document.getElementById('scaleName');
-  var scaleMeta = document.getElementById('scaleMeta');
 
   function buildOptions() {
     var g1 = document.createElement('optgroup'); g1.label = 'Major keys';
@@ -320,14 +292,6 @@ footer p { margin: 0; max-width: 80ch; }
     }
     stage.innerHTML = html;
 
-    var first = notes.slice(0, 7);
-    var marks = first.filter(function (n) { return n.acc !== 0; });
-    var flats = marks.filter(function (n) { return n.acc < 0; }).length;
-    var sharps = marks.length - flats;
-    var sig = marks.length === 0 ? 'no sharps or flats' : (flats ? flats + (flats === 1 ? ' flat' : ' flats') : sharps + (sharps === 1 ? ' sharp' : ' sharps'));
-    scaleName.textContent = k.name + ' ' + k.type;
-    scaleMeta.textContent = sig;
-    chips.innerHTML = first.map(function (n) { return '<li' + (n.deg === 1 ? ' class="tonic"' : '') + '>' + n.name + '</li>'; }).join('');
   }
 
   /* ---------- sound ---------- */
