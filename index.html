@@ -70,6 +70,11 @@ body {
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
   -webkit-text-size-adjust: 100%;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 .app { min-height: 100%; display: flex; flex-direction: column; gap: 14px; max-width: 1200px; margin: 0 auto; }
 
@@ -182,23 +187,6 @@ footer p { margin: 0; max-width: 80ch; }
         <select id="keySel"></select>
       </div>
       <div class="field">
-        <label for="soundSel">Sound</label>
-        <select id="soundSel">
-          <option value="piano">Grand piano</option>
-          <option value="keys">Soft keys</option>
-          <option value="organ">Organ</option>
-          <option value="synth">Synth</option>
-        </select>
-      </div>
-      <div class="field">
-        <span class="lbl" id="octLbl">Octave</span>
-        <div class="step" role="group" aria-labelledby="octLbl">
-          <button id="octDown" type="button" aria-label="Lower by an octave">&minus;</button>
-          <output id="octOut" for="octDown octUp"></output>
-          <button id="octUp" type="button" aria-label="Higher by an octave">+</button>
-        </div>
-      </div>
-      <div class="field">
         <span class="lbl" id="layLbl">Layout</span>
         <div class="seg" role="group" aria-labelledby="layLbl">
           <button id="layStack" type="button" aria-pressed="true">Rows</button>
@@ -253,25 +241,21 @@ footer p { margin: 0; max-width: 80ch; }
   var CODE2IDX = {};
   KB.forEach(function (row, r) { row.forEach(function (code, c) { CODE2IDX[code] = 7 * r + c; }); });
 
-  var S = { key: 0, sound: 'keys', layout: 'stack', shift: 0 };
+  var S = { key: 0, layout: 'stack' };
   try {
     var saved = JSON.parse(localStorage.getItem('scalelock') || 'null');
     if (saved) {
       if (saved.key >= 0 && saved.key < KEYS.length) S.key = saved.key;
-      if (['piano', 'keys', 'organ', 'synth'].indexOf(saved.sound) >= 0) S.sound = saved.sound;
       if (saved.layout === 'line' || saved.layout === 'stack') S.layout = saved.layout;
-      if (saved.shift >= -1 && saved.shift <= 1) S.shift = saved.shift;
     }
   } catch (e) {}
   function save() { try { localStorage.setItem('scalelock', JSON.stringify(S)); } catch (e) {} }
 
   var keySel = document.getElementById('keySel');
-  var soundSel = document.getElementById('soundSel');
   var stage = document.getElementById('stage');
   var chips = document.getElementById('chips');
   var scaleName = document.getElementById('scaleName');
   var scaleMeta = document.getElementById('scaleMeta');
-  var octOut = document.getElementById('octOut');
 
   function buildOptions() {
     var g1 = document.createElement('optgroup'); g1.label = 'Major keys';
@@ -290,7 +274,7 @@ footer p { margin: 0; max-width: 80ch; }
   function buildNotes() {
     var k = KEYS[S.key];
     var tpc = (NAT[k.li] + k.a + 12) % 12;
-    var tmidi = 48 + tpc + 12 * S.shift;
+    var tmidi = 48 + tpc;
     notes = [];
     for (var i = 0; i < 22; i++) {
       var deg = i % 7, oct = Math.floor(i / 7);
@@ -317,7 +301,6 @@ footer p { margin: 0; max-width: 80ch; }
     buildNotes();
     var k = KEYS[S.key];
     keySel.value = String(S.key);
-    soundSel.value = S.sound;
     document.getElementById('layStack').setAttribute('aria-pressed', String(S.layout === 'stack'));
     document.getElementById('layLine').setAttribute('aria-pressed', String(S.layout === 'line'));
 
@@ -343,23 +326,22 @@ footer p { margin: 0; max-width: 80ch; }
     var sharps = marks.length - flats;
     var sig = marks.length === 0 ? 'no sharps or flats' : (flats ? flats + (flats === 1 ? ' flat' : ' flats') : sharps + (sharps === 1 ? ' sharp' : ' sharps'));
     scaleName.textContent = k.name + ' ' + k.type;
-    scaleMeta.textContent = sig + ' · range ' + notes[0].name + notes[0].octave + ' to ' + notes[21].name + notes[21].octave;
+    scaleMeta.textContent = sig;
     chips.innerHTML = first.map(function (n) { return '<li' + (n.deg === 1 ? ' class="tonic"' : '') + '>' + n.name + '</li>'; }).join('');
-    octOut.textContent = (S.shift === 0 ? 'Middle' : S.shift < 0 ? 'Lower' : 'Higher');
-    document.getElementById('octDown').disabled = S.shift <= -1;
-    document.getElementById('octUp').disabled = S.shift >= 1;
   }
 
   /* ---------- sound ---------- */
-  var ctx = null, master = null;
+  var ctx = null, master = null, noiseBuf = null;
   function ensureCtx() {
     if (!ctx) {
       var AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return false;
       ctx = new AC();
       master = ctx.createGain();
-      master.gain.value = 0.5;
+      master.gain.value = 0.4;
       var comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -20; comp.knee.value = 24; comp.ratio.value = 3;
+      comp.attack.value = 0.01; comp.release.value = 0.25;
       master.connect(comp);
       comp.connect(ctx.destination);
     }
@@ -367,32 +349,28 @@ footer p { margin: 0; max-width: 80ch; }
     return true;
   }
 
-  function startVoice(midi) {
-    var t = ctx.currentTime;
+  var SOUND = 'piano'; // 'piano' or 'keys'
+  function startVoice(midi, ahead) {
+    // Start a little ahead of "now" so the fade-in is always scheduled in the future.
+    // Building the voice can take a few milliseconds; without this, a note could start
+    // after its own fade-in had already passed, which is heard as a pop.
+    var t = ctx.currentTime + ahead;
     var f = 440 * Math.pow(2, (midi - 69) / 12);
     var rel = ctx.createGain(); rel.gain.value = 1; rel.connect(master);
-    var env = ctx.createGain(); env.connect(rel);
-    var target = env;
+    var env = ctx.createGain(); env.gain.value = 0; env.connect(rel);
     var oscs = [];
-    function add(type, mult, gain) {
-      var o = ctx.createOscillator(); o.type = type; o.frequency.value = f * mult;
-      var g = ctx.createGain(); g.gain.value = gain;
-      o.connect(g); g.connect(target); o.start(t); oscs.push(o);
-    }
-    var tau = 0.06;
-    if (S.sound === 'piano') {
-      // Additive model of a struck string: slightly stretched partials,
-      // faster decay for higher partials, two detuned strings on the low
-      // partials, a short felt-hammer thump, and a filter that darkens as the note rings.
+    var tau;
+    if (SOUND === 'piano') {
+      // Struck-string model: slightly stretched partials that fade faster the higher they are,
+      // two detuned strings on the lowest partials, and a filter that darkens as the note rings.
       var pf = ctx.createBiquadFilter();
       pf.type = 'lowpass'; pf.Q.value = 0.4;
       pf.frequency.setValueAtTime(Math.min(9000, f * 14), t);
       pf.frequency.exponentialRampToValueAtTime(Math.max(900, f * 3), t + 1.5);
       pf.connect(env);
-      target = pf;
       var base = 7 * Math.pow(2, -(midi - 48) / 22);
       var inh = 0.00012 * Math.pow(2, (midi - 48) / 14);
-      var nPart = midi < 60 ? 12 : midi < 80 ? 8 : 4;
+      var nPart = midi < 60 ? 8 : midi < 80 ? 6 : 4;
       var addPartial = function (freq, amp, dec) {
         var o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = freq;
         var g = ctx.createGain();
@@ -407,51 +385,31 @@ footer p { margin: 0; max-width: 80ch; }
         if (pfreq > 12000) break;
         var pamp = 0.9 / Math.pow(p, 1.15);
         var pdec = base / (1 + 0.55 * (p - 1));
-        if (p <= 3) { addPartial(pfreq * 0.9996, pamp * 0.55, pdec); addPartial(pfreq * 1.0004, pamp * 0.55, pdec * 0.92); }
+        if (p <= 2) { addPartial(pfreq * 0.9996, pamp * 0.55, pdec); addPartial(pfreq * 1.0004, pamp * 0.55, pdec * 0.92); }
         else addPartial(pfreq, pamp * 0.7, pdec);
       }
-      var nb = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.05), ctx.sampleRate);
-      var nd = nb.getChannelData(0);
-      for (var q = 0; q < nd.length; q++) nd[q] = Math.random() * 2 - 1;
-      var ns = ctx.createBufferSource(); ns.buffer = nb;
-      var nf = ctx.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = Math.min(4000, f * 4); nf.Q.value = 0.8;
-      var ng = ctx.createGain();
-      ng.gain.setValueAtTime(0.35, t);
-      ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
-      ns.connect(nf); nf.connect(ng); ng.connect(env); ns.start(t);
-      env.gain.setValueAtTime(0.0001, t);
-      env.gain.linearRampToValueAtTime(0.3, t + 0.003);
+      env.gain.setValueAtTime(0, t);
+      env.gain.linearRampToValueAtTime(0.3, t + 0.012);
       tau = 0.12;
-    } else if (S.sound === 'keys') {
-      add('triangle', 1, 0.8); add('sine', 2, 0.25); add('sine', 3, 0.08);
-      env.gain.setValueAtTime(0.0001, t);
-      env.gain.linearRampToValueAtTime(0.7, t + 0.006);
+    } else {
+      [[1, 0.8, 'triangle'], [2, 0.25, 'sine'], [3, 0.08, 'sine']].forEach(function (d) {
+        var o = ctx.createOscillator(); o.type = d[2]; o.frequency.value = f * d[0];
+        var g = ctx.createGain(); g.gain.value = d[1];
+        o.connect(g); g.connect(env); o.start(t); oscs.push(o);
+      });
+      env.gain.setValueAtTime(0, t);
+      env.gain.linearRampToValueAtTime(0.7, t + 0.015);
       env.gain.exponentialRampToValueAtTime(0.25, t + 0.6);
       env.gain.exponentialRampToValueAtTime(0.04, t + 4);
       tau = 0.12;
-    } else if (S.sound === 'organ') {
-      add('sine', 1, 0.5); add('sine', 2, 0.3); add('sine', 3, 0.15); add('sine', 4, 0.08);
-      env.gain.setValueAtTime(0.0001, t);
-      env.gain.linearRampToValueAtTime(0.45, t + 0.02);
-      tau = 0.05;
-    } else {
-      var filt = ctx.createBiquadFilter();
-      filt.type = 'lowpass'; filt.Q.value = 2;
-      filt.frequency.setValueAtTime(3200, t);
-      filt.frequency.exponentialRampToValueAtTime(1100, t + 0.4);
-      filt.connect(env);
-      target = filt;
-      add('sawtooth', 1, 0.35); add('sawtooth', 1.004, 0.25);
-      env.gain.setValueAtTime(0.0001, t);
-      env.gain.linearRampToValueAtTime(0.5, t + 0.01);
-      env.gain.exponentialRampToValueAtTime(0.3, t + 0.5);
-      tau = 0.08;
     }
     return {
       stop: function () {
         var now = ctx.currentTime;
-        rel.gain.setTargetAtTime(0, now, tau);
-        oscs.forEach(function (o) { try { o.stop(now + 1); } catch (e) {} });
+        var rt = Math.max(tau, 0.06);
+        rel.gain.setTargetAtTime(0, now, rt);
+        var endAt = Math.max(now, t) + rt * 12 + 0.1;
+        oscs.forEach(function (o) { try { o.stop(endAt); } catch (e) {} });
         oscs[0].onended = function () { try { rel.disconnect(); } catch (e) {} };
       }
     };
@@ -465,10 +423,11 @@ footer p { margin: 0; max-width: 80ch; }
     var els = stage.querySelectorAll('.key[data-idx="' + idx + '"]');
     for (var i = 0; i < els.length; i++) els[i].classList.toggle('down', counts[idx] > 0);
   }
-  function press(id, idx) {
+  function press(id, idx, ahead) {
+    if (ahead == null) ahead = 0.05; // taps and clicks: more room for a clean start
     if (voices[id] || !notes[idx]) return;
     if (!ensureCtx()) return;
-    voices[id] = { idx: idx, v: startVoice(notes[idx].midi) };
+    voices[id] = { idx: idx, v: startVoice(notes[idx].midi, ahead) };
     mark(idx, true);
   }
   function release(id) {
@@ -498,9 +457,9 @@ footer p { margin: 0; max-width: 80ch; }
   function typing(el) { return el && (el.tagName === 'SELECT' || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'); }
   window.addEventListener('keydown', function (e) {
     if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || typing(e.target)) return;
-    if (CODE2IDX.hasOwnProperty(e.code)) { e.preventDefault(); press('k' + e.code, CODE2IDX[e.code]); }
+    if (CODE2IDX.hasOwnProperty(e.code)) { e.preventDefault(); press('k' + e.code, CODE2IDX[e.code], 0.012); }
     else if ((e.code === 'Space' || e.code === 'Enter') && e.target.classList && e.target.classList.contains('key')) {
-      e.preventDefault(); press('k' + e.code, Number(e.target.dataset.idx));
+      e.preventDefault(); press('k' + e.code, Number(e.target.dataset.idx), 0.012);
     }
   });
   window.addEventListener('keyup', function (e) { release('k' + e.code); });
@@ -509,9 +468,6 @@ footer p { margin: 0; max-width: 80ch; }
 
   /* ---------- controls ---------- */
   keySel.addEventListener('change', function () { S.key = Number(keySel.value); save(); render(); keySel.blur(); });
-  soundSel.addEventListener('change', function () { S.sound = soundSel.value; save(); soundSel.blur(); });
-  document.getElementById('octDown').addEventListener('click', function () { if (S.shift > -1) { S.shift--; save(); render(); } });
-  document.getElementById('octUp').addEventListener('click', function () { if (S.shift < 1) { S.shift++; save(); render(); } });
   document.getElementById('layStack').addEventListener('click', function () { S.layout = 'stack'; save(); render(); });
   document.getElementById('layLine').addEventListener('click', function () { S.layout = 'line'; save(); render(); });
 
