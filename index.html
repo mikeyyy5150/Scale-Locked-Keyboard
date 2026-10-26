@@ -334,10 +334,20 @@ select:focus-visible, .seg button:focus-visible, .key:focus-visible { outline: 3
       comp.attack.value = 0.01; comp.release.value = 0.25;
       master.connect(comp);
       comp.connect(ctx.destination);
+      try { // a silent blip tells iOS and Chrome that sound is wanted
+        var blip = ctx.createBufferSource();
+        blip.buffer = ctx.createBuffer(1, 1, 22050);
+        blip.connect(ctx.destination);
+        blip.start(0);
+      } catch (e) {}
     }
-    if (ctx.state === 'suspended') ctx.resume();
+    if (ctx.state !== 'running') { try { var rp = ctx.resume(); if (rp && rp.catch) rp.catch(function () {}); } catch (e) {} }
     return true;
   }
+  // Chrome on phones only unlocks sound once a tap is finished, so also unlock on release.
+  ['pointerup', 'touchend', 'click', 'keydown'].forEach(function (type) {
+    window.addEventListener(type, function () { ensureCtx(); }, { passive: true });
+  });
 
   var SOUND = 'piano'; // 'piano' or 'keys'
   function startVoice(midi, ahead, vol, lite) {
@@ -419,14 +429,19 @@ select:focus-visible, .seg button:focus-visible, .key:focus-visible { outline: 3
     if (ahead == null) ahead = 0.05; // taps and clicks: more room for a clean start
     if (voices[id] || !notes[idx]) return;
     if (!ensureCtx()) return;
-    voices[id] = { key: 'n' + idx, vs: [startVoice(notes[idx].midi, ahead, 1, false)] };
+    try { voices[id] = { key: 'n' + idx, vs: [startVoice(notes[idx].midi, ahead, 1, false)] }; }
+    catch (err) { return; }
     mark('n' + idx, true);
   }
   function pressChord(id, n, ahead) {
     if (ahead == null) ahead = 0.05;
     if (voices[id] || n < 0 || n > 7) return;
     if (!ensureCtx()) return;
-    var vs = chordInfo(n).idx.map(function (i) { return startVoice(notes[i].midi, ahead, 0.6, true); });
+    var vs = [];
+    chordInfo(n).idx.forEach(function (i) {
+      try { vs.push(startVoice(notes[i].midi, ahead, 0.6, true)); } catch (err) {}
+    });
+    if (!vs.length) return;
     voices[id] = { key: 'c' + n, vs: vs };
     mark('c' + n, true);
   }
