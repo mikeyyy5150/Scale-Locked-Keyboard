@@ -116,10 +116,15 @@ select {
 select:focus-visible, .seg button:focus-visible, .key:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 
 
-.stage { flex: 1 1 auto; min-height: 330px; min-width: 0; }
-.rows { display: grid; grid-template-rows: repeat(3, 1fr); gap: 10px; height: 100%; }
+.stage { flex: 1 1 auto; min-height: 440px; min-width: 0; }
+.col { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
+.col > .row { flex: 1 1 0; min-height: 60px; }
+.col.lined > .row.chords { flex: 0 0 96px; }
+.sec { flex: none; font: 500 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.rule { flex: none; height: 1px; background: var(--line); margin-block: 2px; }
 .row { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px; }
-.line { display: flex; gap: 8px; height: 100%; min-height: 330px; overflow-x: auto; padding-bottom: 8px; -webkit-overflow-scrolling: touch; }
+.col > .line { flex: 1 1 0; min-height: 150px; }
+.line { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; -webkit-overflow-scrolling: touch; }
 .line .key { flex: 0 0 72px; }
 
 .key {
@@ -150,6 +155,7 @@ select:focus-visible, .seg button:focus-visible, .key:focus-visible { outline: 3
 .key.tonic { --edge: var(--tonic-edge); background: var(--tonic); }
 .key.down { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); transform: translateY(4px); box-shadow: 0 0 0 var(--edge); }
 .key .nm { font-weight: 700; font-size: clamp(18px, 3.4vw, 36px); letter-spacing: -0.01em; pointer-events: none; }
+.key .nm sup { font-size: 0.6em; line-height: 0; position: relative; top: -0.35em; vertical-align: baseline; }
 .key .deg, .key .kb { position: absolute; font: 500 11px/1 var(--font-mono); opacity: 0.65; pointer-events: none; }
 .key .deg { top: 7px; left: 8px; }
 .key .kb { bottom: 5px; left: 0; right: 0; text-align: center; text-transform: uppercase; display: none; }
@@ -213,6 +219,8 @@ select:focus-visible, .seg button:focus-visible, .key:focus-visible { outline: 3
     ['KeyQ', 'KeyW', 'KeyE', 'KeyR', 'KeyT', 'KeyY', 'KeyU', 'KeyI']
   ];
   var KBLABEL = function (code) { return code === 'Comma' ? ',' : code.replace('Key', ''); };
+  var CODE2CHORD = {};
+  for (var dn = 1; dn <= 8; dn++) CODE2CHORD['Digit' + dn] = dn - 1;
   var CODE2IDX = {};
   KB.forEach(function (row, r) { row.forEach(function (code, c) { CODE2IDX[code] = 7 * r + c; }); });
 
@@ -260,6 +268,22 @@ select:focus-visible, .seg button:focus-visible, .key:focus-visible { outline: 3
   function spoken(nt) { return nt.letter + (nt.acc > 0 ? ' sharp' : nt.acc < 0 ? ' flat' : '') + ' ' + nt.octave; }
   function kbCode(idx) { return idx === 21 ? KB[2][7] : KB[Math.floor(idx / 7)][idx % 7]; }
 
+  // Chord n (0 to 7) is the triad built on scale notes n, n+2 and n+4.
+  function chordInfo(n) {
+    var a = notes[n], b = notes[n + 2], c = notes[n + 4];
+    var low = b.midi - a.midi, high = c.midi - b.midi;
+    var q = (low === 3 && high === 3) ? 'dim' : (low === 3 ? 'min' : 'maj');
+    return { deg: (n % 7) + 1, q: q, idx: [n, n + 2, n + 4] };
+  }
+  function chordHTML(n) {
+    var ch = chordInfo(n);
+    var label = ch.deg + (ch.q === 'min' ? 'm' : ch.q === 'dim' ? '<sup>°</sup>' : '');
+    var words = ch.q === 'min' ? ' minor' : ch.q === 'dim' ? ' diminished' : ' major';
+    return '<button type="button" class="key chord' + (ch.deg === 1 ? ' tonic' : '') + '" data-chord="' + n + '" aria-label="Chord ' + ch.deg + words + '">' +
+      '<span class="nm">' + label + '</span>' +
+      '<span class="kb">' + (n + 1) + '</span></button>';
+  }
+
   function keyHTML(idx, code) {
     var nt = notes[idx];
     return '<button type="button" class="key' + (nt.deg === 1 ? ' tonic' : '') + '" data-idx="' + idx + '" aria-label="' + spoken(nt) + ', scale degree ' + nt.deg + '">' +
@@ -276,20 +300,22 @@ select:focus-visible, .seg button:focus-visible, .key:focus-visible { outline: 3
     document.getElementById('layStack').setAttribute('aria-pressed', String(S.layout === 'stack'));
     document.getElementById('layLine').setAttribute('aria-pressed', String(S.layout === 'line'));
 
-    var html = '';
+    var html = '<div class="col' + (S.layout === 'line' ? ' lined' : '') + '">';
+    html += '<div class="sec">Chords</div><div class="row chords">';
+    for (var n = 0; n < 8; n++) html += chordHTML(n);
+    html += '</div><div class="rule"></div><div class="sec">Notes</div>';
     if (S.layout === 'stack') {
-      html = '<div class="rows">';
       for (var r = 2; r >= 0; r--) {
         html += '<div class="row">';
         for (var c = 0; c < 8; c++) html += keyHTML(7 * r + c, KB[r][c]);
         html += '</div>';
       }
-      html += '</div>';
     } else {
-      html = '<div class="line">';
+      html += '<div class="line">';
       for (var i = 0; i < 22; i++) html += keyHTML(i, kbCode(i));
       html += '</div>';
     }
+    html += '</div>';
     stage.innerHTML = html;
 
   }
@@ -314,7 +340,7 @@ select:focus-visible, .seg button:focus-visible, .key:focus-visible { outline: 3
   }
 
   var SOUND = 'piano'; // 'piano' or 'keys'
-  function startVoice(midi, ahead) {
+  function startVoice(midi, ahead, vol, lite) {
     // Start a little ahead of "now" so the fade-in is always scheduled in the future.
     // Building the voice can take a few milliseconds; without this, a note could start
     // after its own fade-in had already passed, which is heard as a pop.
@@ -335,6 +361,7 @@ select:focus-visible, .seg button:focus-visible, .key:focus-visible { outline: 3
       var base = 7 * Math.pow(2, -(midi - 48) / 22);
       var inh = 0.00012 * Math.pow(2, (midi - 48) / 14);
       var nPart = midi < 60 ? 8 : midi < 80 ? 6 : 4;
+      if (lite) nPart = Math.min(nPart, 5);
       var addPartial = function (freq, amp, dec) {
         var o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = freq;
         var g = ctx.createGain();
@@ -353,7 +380,7 @@ select:focus-visible, .seg button:focus-visible, .key:focus-visible { outline: 3
         else addPartial(pfreq, pamp * 0.7, pdec);
       }
       env.gain.setValueAtTime(0, t);
-      env.gain.linearRampToValueAtTime(0.3, t + 0.012);
+      env.gain.linearRampToValueAtTime(0.3 * vol, t + 0.012);
       tau = 0.12;
     } else {
       [[1, 0.8, 'triangle'], [2, 0.25, 'sine'], [3, 0.08, 'sine']].forEach(function (d) {
@@ -362,7 +389,7 @@ select:focus-visible, .seg button:focus-visible, .key:focus-visible { outline: 3
         o.connect(g); g.connect(env); o.start(t); oscs.push(o);
       });
       env.gain.setValueAtTime(0, t);
-      env.gain.linearRampToValueAtTime(0.7, t + 0.015);
+      env.gain.linearRampToValueAtTime(0.7 * vol, t + 0.015);
       env.gain.exponentialRampToValueAtTime(0.25, t + 0.6);
       env.gain.exponentialRampToValueAtTime(0.04, t + 4);
       tau = 0.12;
@@ -382,24 +409,37 @@ select:focus-visible, .seg button:focus-visible, .key:focus-visible { outline: 3
   /* ---------- pressing ---------- */
   var voices = {};
   var counts = {};
-  function mark(idx, on) {
-    counts[idx] = (counts[idx] || 0) + (on ? 1 : -1);
-    var els = stage.querySelectorAll('.key[data-idx="' + idx + '"]');
-    for (var i = 0; i < els.length; i++) els[i].classList.toggle('down', counts[idx] > 0);
+  function mark(key, on) {
+    counts[key] = (counts[key] || 0) + (on ? 1 : -1);
+    var sel = key.charAt(0) === 'c' ? '[data-chord="' + key.slice(1) + '"]' : '[data-idx="' + key.slice(1) + '"]';
+    var els = stage.querySelectorAll('.key' + sel);
+    for (var i = 0; i < els.length; i++) els[i].classList.toggle('down', counts[key] > 0);
   }
   function press(id, idx, ahead) {
     if (ahead == null) ahead = 0.05; // taps and clicks: more room for a clean start
     if (voices[id] || !notes[idx]) return;
     if (!ensureCtx()) return;
-    voices[id] = { idx: idx, v: startVoice(notes[idx].midi, ahead) };
-    mark(idx, true);
+    voices[id] = { key: 'n' + idx, vs: [startVoice(notes[idx].midi, ahead, 1, false)] };
+    mark('n' + idx, true);
+  }
+  function pressChord(id, n, ahead) {
+    if (ahead == null) ahead = 0.05;
+    if (voices[id] || n < 0 || n > 7) return;
+    if (!ensureCtx()) return;
+    var vs = chordInfo(n).idx.map(function (i) { return startVoice(notes[i].midi, ahead, 0.6, true); });
+    voices[id] = { key: 'c' + n, vs: vs };
+    mark('c' + n, true);
+  }
+  function pressEl(id, b, ahead) {
+    if (b.dataset.chord !== undefined) pressChord(id, Number(b.dataset.chord), ahead == null ? undefined : ahead + 0.013);
+    else press(id, Number(b.dataset.idx), ahead);
   }
   function release(id) {
     var o = voices[id];
     if (!o) return;
-    o.v.stop();
+    o.vs.forEach(function (v) { v.stop(); });
     delete voices[id];
-    mark(o.idx, false);
+    mark(o.key, false);
   }
   function stopAll() {
     Object.keys(voices).forEach(release);
@@ -409,9 +449,9 @@ select:focus-visible, .seg button:focus-visible, .key:focus-visible { outline: 3
   stage.addEventListener('pointerdown', function (e) {
     var b = e.target.closest ? e.target.closest('.key') : null;
     if (!b) return;
-    if (S.layout === 'stack') e.preventDefault();
+    if (S.layout === 'stack' || b.dataset.chord !== undefined) e.preventDefault();
     try { b.setPointerCapture(e.pointerId); } catch (err) {}
-    press('p' + e.pointerId, Number(b.dataset.idx));
+    pressEl('p' + e.pointerId, b);
   });
   ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function (type) {
     stage.addEventListener(type, function (e) { release('p' + e.pointerId); });
@@ -421,9 +461,10 @@ select:focus-visible, .seg button:focus-visible, .key:focus-visible { outline: 3
   function typing(el) { return el && (el.tagName === 'SELECT' || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'); }
   window.addEventListener('keydown', function (e) {
     if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || typing(e.target)) return;
-    if (CODE2IDX.hasOwnProperty(e.code)) { e.preventDefault(); press('k' + e.code, CODE2IDX[e.code], 0.012); }
+    if (CODE2CHORD.hasOwnProperty(e.code)) { e.preventDefault(); pressChord('k' + e.code, CODE2CHORD[e.code], 0.025); }
+    else if (CODE2IDX.hasOwnProperty(e.code)) { e.preventDefault(); press('k' + e.code, CODE2IDX[e.code], 0.012); }
     else if ((e.code === 'Space' || e.code === 'Enter') && e.target.classList && e.target.classList.contains('key')) {
-      e.preventDefault(); press('k' + e.code, Number(e.target.dataset.idx), 0.012);
+      e.preventDefault(); pressEl('k' + e.code, e.target, 0.012);
     }
   });
   window.addEventListener('keyup', function (e) { release('k' + e.code); });
